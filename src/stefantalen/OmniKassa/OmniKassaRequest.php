@@ -2,10 +2,16 @@
 
 namespace stefantalen\OmniKassa;
 
-use stefantalen\OmniKassa\OmniKassaOrder;
+define('OMNIKASSA_TEST_MODE', true);
 
-class OmniKassaRequest extends OmniKassaOrder
+class OmniKassaRequest
 {
+
+    /**
+     * @var bool
+     */
+    protected $isTestRequest = true;
+
     /**
      * @var string $interfaceVersion
      */
@@ -39,12 +45,30 @@ class OmniKassaRequest extends OmniKassaOrder
     /**
      * @var string $actionUrl
      */
-    protected $actionUrl = "https://payment-webinit.omnikassa.rabobank.nl/paymentServlet";
+    protected $liveActionUrl = "https://payment-webinit.omnikassa.rabobank.nl/paymentServlet";
+    protected $testActionUrl = "https://payment-webinit.simu.omnikassa.rabobank.nl/paymentServlet";
 
+    /**
+     * @var string $secretKey
+     */
+    protected $secretKey;
+
+    /**
+     * @var string $keyVersion
+     */
+    protected $keyVersion;
+
+    /**
+     * @var OmniKassaOrder
+     */
+    protected $order;
     
-    public function __construct()
+    public function __construct(OmniKassaOrder $order = null)
     {
         $this->paymentMeanBrandList = array();
+        if($order !== null) {
+            $this->order = $order;
+        }
     }
     
     /**
@@ -282,36 +306,39 @@ class OmniKassaRequest extends OmniKassaOrder
      */
     public function getData()
     {
+        if(defined('OMNIKASSA_TEST_MODE')) {
+            $this->enableTestMode();
+        }
+
+        $orderData = $this->order->getData();
+
         // Required fields
-        $data = array(
-            'amount' => $this->amount,
-            'currencyCode' => $this->currency,
-            'merchantId' => $this->merchantId,
+        $requestData = array(
             'normalReturnUrl' => $this->normalReturnUrl,
             'automaticResponseUrl' => $this->automaticResponseUrl,
-            'transactionReference' => $this->transactionReference,
-            'orderId' => $this->orderId,
             'keyVersion' => $this->keyVersion
         );
+
+        if($this->customerLanguage !== null) {
+            $requestData['customerLanguage'] = $this->customerLanguage;
+        }
+        if($this->expirationDate !== null) {
+            $requestData['expirationDate'] = $this->expirationDate;
+        }
+
+        if (sizeof($this->paymentMeanBrandList) > 0) {
+            $requestData['paymentMeanBrandList'] = implode(',', $this->paymentMeanBrandList);
+        }
+
+        $data = array_merge($requestData, $orderData);
+
+        //quick dirty validation on null values
         foreach ($data as $key => $value) {
             if (null == $value) {
                 throw new \BadMethodCallException(sprintf('No %s specified', $key));
             }
         }
-        $optionalData = array(
-            'customerLanguage' => $this->customerLanguage,
-            'expirationDate' => $this->expirationDate,
-            'captureDay' => $this->captureDay,
-            'captureMode' => $this->captureMode
-        );
-        if (sizeof($this->paymentMeanBrandList) > 0) {
-            $optionalData['paymentMeanBrandList'] = implode(',', $this->paymentMeanBrandList);
-        }
-        foreach ($optionalData as $key => $value) {
-            if (null !== $value) {
-                $data[$key] = $value;
-            }
-        }
+
         return implode(
             '|',
             array_map(
@@ -346,7 +373,58 @@ class OmniKassaRequest extends OmniKassaOrder
      */
     public function getActionUrl()
     {
-        return $this->actionUrl;
+        return defined('OMNIKASSA_TEST_MODE') ? $this->testActionUrl : $this->liveActionUrl;
+    }
+
+
+    /**
+     * Set the secret key provided by OmniKassa
+     *
+     * @param string $key The secret key
+     *
+     * @return OmniKassaRequest
+
+     * @throws \BadMethodCallException if test mode is enabled
+     */
+    public function setSecretKey($key)
+    {
+//        if ($this->isTestRequest) {
+//            throw new \BadMethodCallException('The secret key cannot be set in a test request');
+//        }
+        $this->secretKey = $key;
+        return $this;
+    }
+
+    /**
+     * The version number of the secret key, can be found on the OmniKassa website
+     *
+     * @param string $version The version number
+     *
+     * @return OmniKassaRequest
+     *
+     * @throws \BadMethodCallException if test mode is enabled
+     * @throws \LengthException if the key is longer than 10 characters
+     */
+    public function setKeyVersion($version)
+    {
+//        if ($this->isTestRequest) {
+//            throw new \BadMethodCallException('The keyVersion cannot be set in a test request');
+//        }
+        if (strlen($version) > 10) {
+            throw new \LengthException('The keyVersion has a maximum of 10 characters');
+        }
+        $this->keyVersion = $version;
+        return $this;
+    }
+
+    /**
+     * Get the secret key
+     *
+     * @return string
+     */
+    public function getSecretKey()
+    {
+        return $this->secretKey;
     }
     
     /**
@@ -354,8 +432,29 @@ class OmniKassaRequest extends OmniKassaOrder
      */
     public function enableTestMode()
     {
-        parent::enableTestMode();
-        $this->actionUrl = "https://payment-webinit.simu.omnikassa.rabobank.nl/paymentServlet";
+        $this->isTestRequest = true;
+        $this->setSecretKey('002020000000001_KEY1');
+        $this->setKeyVersion('1');
+        $this->order->enableTestMode();
+
         return $this;
+    }
+
+    public function createForm()
+    {
+        $form = <<<EOF
+<form id="omnikassa_payment_form" method="post" action="{$this->getActionUrl()}">
+    <input type="hidden" name="Data" value="{$this->getData()}">
+    <input type="hidden" name="InterfaceVersion" value="{$this->getInterfaceVersion()}">
+    <input type="hidden" name="Seal" value="{$this->getSeal()}">
+    <input type="submit" value="Naar betaling" />
+</form>
+EOF;
+        if($this->isTestRequest === false) {
+            $form .= "<script type=\"text/javascript\"> window.addEvent('domready', function(){
+document.id('omnikassa_payment_form').submit();
+});</script>";
+        }
+        return $form;
     }
 }

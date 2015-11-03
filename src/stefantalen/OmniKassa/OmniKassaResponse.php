@@ -2,14 +2,12 @@
 
 namespace stefantalen\OmniKassa;
 
-use stefantalen\OmniKassa\OmniKassaOrder;
-
-class OmniKassaResponse extends OmniKassaOrder
+class OmniKassaResponse
 {
     /**
-     * @var string $data
+     * @var string $rawData
      */
-    protected $data;
+    protected $rawData;
     /**
      * @var string $seal
      */
@@ -24,7 +22,20 @@ class OmniKassaResponse extends OmniKassaOrder
      * @var \DateTime $transactionDateTime
      */
     protected $transactionDateTime;
-    
+
+    /** @var  OmniKassaOrder */
+    protected $order;
+
+    /**
+     * @var string
+     */
+    protected $secretKey;
+
+    /**
+     * @var int
+     */
+    protected $keyVersion;
+
     /**
      * Handle the POST array
      *
@@ -43,7 +54,7 @@ class OmniKassaResponse extends OmniKassaOrder
         if (!isset($postArray['Seal'])) {
             throw new \InvalidArgumentException('The array should contain a "Seal" key');
         }
-        $this->data = $postArray['Data'];
+        $this->rawData = $postArray['Data'];
         $this->seal = $postArray['Seal'];
     }
     
@@ -56,30 +67,12 @@ class OmniKassaResponse extends OmniKassaOrder
     public function validate()
     {
         if ($this->seal === $this->getSeal()) {
-            $this->handleData($this->data);
+            $this->handleData($this->rawData);
         } else {
             throw new \UnexpectedValueException('This response is not valid');
         }
     }
-    
-    /**
-     * Set the currency based in the code
-     *
-     * @param string $code The currency code
-     *
-     * @return OmniKassaResponse
-     *
-     * @throws \InvalidArgumentException if the currency is not available
-     */
-    public function setCurrencyCode($code)
-    {
-        if (!in_array($code, $this->currencyCodes)) {
-            throw new \InvalidArgumentException(sprintf('The requested currency code "%s" is not available', $code));
-        }
-        $this->currency = $code;
-        return $this;
-    }
-    
+
     /**
      * Convert the Data string
      *
@@ -93,25 +86,15 @@ class OmniKassaResponse extends OmniKassaOrder
             list($k, $v) = explode('=', $d);
             $data[$k] = $v;
         }
+
+        $this->order = OmniKassaOrder::fromData($data);
+
         $this
-            ->setCurrencyCode($data['currencyCode'])
-            ->setAmount($data['amount'])
-            ->setTransactionReference($data['transactionReference'])
-            ->setOrderId($data['orderId'])
+            ->setKeyVersion($data['keyVersion'])
+            ->setResponseCode($data['responseCode'])
+            ->setTransactionDateTime($data['transactionDateTime'])
         ;
-        if (!$this->testMode) {
-            $this
-                ->setMerchantId($data['merchantId'])
-                ->setKeyVersion($data['keyVersion'])
-            ;
-        }
-        if ($this instanceof OmniKassaResponse) {
-            $this
-                ->setResponseCode($data['responseCode'])
-                ->setTransactionDateTime($data['transactionDateTime'])
-            ;
-        }
-        
+
     }
     
     /**
@@ -126,7 +109,7 @@ class OmniKassaResponse extends OmniKassaOrder
         if (null === $this->secretKey) {
             throw new \BadMethodCallException('A secret key must be provided');
         }
-        return hash('sha256', utf8_encode($this->data. $this->secretKey));
+        return hash('sha256', utf8_encode($this->rawData. $this->secretKey));
     }
     
     /**
@@ -146,7 +129,7 @@ class OmniKassaResponse extends OmniKassaOrder
         }
         
         // Add decimals to value the currency is not Japanese Yen
-        if ($this->currency !== '392') {
+        if ($this->currencyId !== '392') {
             if ($amount >= 100) {
                 $amount = preg_replace('/^([0-9]*)([0-9]{2})$/', '$1.$2', $amount);
             } else {
@@ -208,4 +191,55 @@ class OmniKassaResponse extends OmniKassaOrder
     {
         return $this->transactionDateTime;
     }
+
+    /**
+     * Set the secret key provided by OmniKassa
+     *
+     * @param string $key The secret key
+     *
+     * @return OmniKassaResponse
+
+     * @throws \BadMethodCallException if test mode is enabled
+     */
+    public function setSecretKey($key)
+    {
+//        if ($this->isTestRequest) {
+//            throw new \BadMethodCallException('The secret key cannot be set in a test request');
+//        }
+        $this->secretKey = $key;
+        return $this;
+    }
+
+    /**
+     * The version number of the secret key, can be found on the OmniKassa website
+     *
+     * @param string $version The version number
+     *
+     * @return OmniKassaResponse
+     *
+     * @throws \BadMethodCallException if test mode is enabled
+     * @throws \LengthException if the key is longer than 10 characters
+     */
+    public function setKeyVersion($version)
+    {
+//        if ($this->isTestRequest) {
+//            throw new \BadMethodCallException('The keyVersion cannot be set in a test request');
+//        }
+        if (strlen($version) > 10) {
+            throw new \LengthException('The keyVersion has a maximum of 10 characters');
+        }
+        $this->keyVersion = $version;
+        return $this;
+    }
+
+    /**
+     * Get the secret key
+     *
+     * @return string
+     */
+    public function getSecretKey()
+    {
+        return $this->secretKey;
+    }
+
 }

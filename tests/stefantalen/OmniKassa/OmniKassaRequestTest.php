@@ -297,7 +297,7 @@ class OmniKassaRequestTest extends \PHPUnit_Framework_TestCase
     {
         $request = new OmniKassaRequest();
         $request
-            ->setCurrency('EUR')
+            ->setCurrencyId('EUR')
             ->setAmount('0.55')
             ->setMerchantId('002020000000001')
             ->setNormalReturnUrl('http://www.normalreturnurl.nl')

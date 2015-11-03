@@ -24,26 +24,11 @@ class OmniKassaOrder
      * @var string $merchantId
      */
     protected $merchantId;
-    
-    /**
-     * @var string $secretKey
-     */
-    protected $secretKey;
-    
-    /**
-     * @var string $currency
-     */
-    protected $currency;
-    
+
     /**
      * @var string $transactionReference
      */
     protected $transactionReference;
-    
-    /**
-     * @var string $keyVersion
-     */
-    protected $keyVersion;
     
     /**
      * @var string $amount
@@ -69,7 +54,25 @@ class OmniKassaOrder
      * @var boolean $testMode
      */
     protected $testMode = false;
-    
+
+    /**
+     * @var string
+     */
+    protected $currencyCode;
+
+    public static function fromData($data)
+    {
+        $order = new self();
+        $order
+            ->setMerchantId($data['merchantId'])
+            ->setCurrencyId($data['currencyCode'])
+            ->setServerAmount($data['amount'])
+            ->setTransactionReference($data['transactionReference'])
+            ->setOrderId($data['orderId']);
+
+        return $order;
+    }
+
     /**
      * Set the merchant id provided by OmniKassa
      *
@@ -91,42 +94,13 @@ class OmniKassaOrder
         $this->merchantId = $id;
         return $this;
     }
-    
-    /**
-     * Set the secret key provided by OmniKassa
-     *
-     * @param string $key The secret key
-     *
-     * @return OmniKassaOrder
-     
-     * @throws \BadMethodCallException if test mode is enabled
-     */
-    public function setSecretKey($key)
-    {
-        if ($this->testMode) {
-            throw new \BadMethodCallException('The secret key cannot be set in test mode');
-        }
-        $this->secretKey = $key;
-        return $this;
-    }
-    
-    
-    /**
-     * Get the secret key
-     *
-     * @return string
-     */
-    public function getSecretKey()
-    {
-        return $this->secretKey;
-    }
-    
+
     /**
      * @param string $currencyCode
      *
      * @return OmniKassaOrder
      */
-    public function setCurrency($currencyCode)
+    public function setCurrencyCode($currencyCode)
     {
         if (!preg_match('/^[A-Z]{3}$/', $currencyCode)) {
             throw new \InvalidArgumentException('The given currency does not comply with the ISO 4217 standard');
@@ -134,14 +108,35 @@ class OmniKassaOrder
         if (!array_key_exists($currencyCode, $this->currencyCodes)) {
             throw new \InvalidArgumentException(sprintf('The requested currency "%s" is not available', $currencyCode));
         }
-        $this->currency = $this->currencyCodes[$currencyCode];
+        $this->currencyCode = $currencyCode;
         
         return $this;
     }
-    
-    public function getCurrency()
+
+
+    /**
+     * @param string $currencyCode
+     *
+     * @return OmniKassaOrder
+     */
+    public function setCurrencyId($currencyId)
     {
-        return array_search($this->currency, $this->currencyCodes);
+        if (!is_numeric($currencyId)) {
+            throw new \InvalidArgumentException('The currency ID must be an integer');
+        }
+
+        $currencyCode = array_search($currencyId, $this->currencyCodes);
+        if ($currencyCode === false) {
+            throw new \InvalidArgumentException(sprintf('A currency with Id "%s" is not available', $currencyCode));
+        }
+        $this->currencyCode = $currencyCode;
+
+        return $this;
+    }
+    
+    public function getCurrencyId()
+    {
+        return $this->currencyCodes[$this->currencyCode];
     }
     
     /**
@@ -175,29 +170,7 @@ class OmniKassaOrder
     {
         return $this->transactionReference;
     }
-    
-    /**
-     * The version number of the secret key, can be found on the OmniKassa website
-     *
-     * @param string $version The version number
-     *
-     * @return OmniKassaOrder
-     *
-     * @throws \BadMethodCallException if test mode is enabled
-     * @throws \LengthException if the key is longer than 10 characters
-     */
-    public function setKeyVersion($version)
-    {
-        if ($this->testMode) {
-            throw new \BadMethodCallException('The keyVersion cannot be set in test mode');
-        }
-        if (strlen($version) > 10) {
-            throw new \LengthException('The keyVersion has a maximum of 10 characters');
-        }
-        $this->keyVersion = $version;
-        return $this;
-    }
-    
+
     /**
      * Set the amount of the order
      *
@@ -208,32 +181,35 @@ class OmniKassaOrder
      * @throws \LogicException if there hasn't been a currency supplied
      * @throws \InvalidArgumentException if the amount is not in the right format
      */
-    public function setAmount($amount)
+    public function setLocalAmount($amount)
     {
-        // A currency must be set
-        if (null === $this->currency) {
-            throw new \LogicException('Please set a currency first');
-        }
-        if(is_float($amount)) {
-            $amount = number_format($amount, 2);
-        }
-        // Check if the amount is a valid value
-        if (!preg_match('/^([0-9]+)(\.{1}[0-9]{1,2})?$/', $amount, $matches)) {
-            throw new \InvalidArgumentException('The amount can only contain numerics and one dot');
-        }
-        
+//        // A currency must be set
+//        if (null === $this->currencyId) {
+//            throw new \LogicException('Please set a currency first');
+//        }
+        $amount  = str_replace(',','.',$amount);
+        $amount = floatval($amount);
+
         // Add decimals to value the currency is not Japanese Yen
-        if ($this->currency !== '392') {
-            if (isset($matches[2])) {
-                $amount = '' . intval($matches[1] . substr($matches[2], 1));
-            } else {
-                $amount = $matches[1] . '00';
-            }
+        if ($this->currencyCode === 'JPY') {
+            //convert to int, to guarantee no decimals while not multiplying
+            $amount = (int)$amount;
+        } else {
+            $amount *= 100; //remove decimal places by multiplying with 100
         }
         // Check the maximum value
         if ($amount > 999999999999) {
             throw new \InvalidArgumentException('The amount cannot be over 9.999.999.999,99');
         }
+        $this->amount = $amount;
+        return $this;
+    }
+
+    /**
+     * @param int $amount
+     */
+    public function setServerAmount($amount)
+    {
         $this->amount = $amount;
         return $this;
     }
@@ -243,9 +219,15 @@ class OmniKassaOrder
      *
      * @return string
      */
-    public function getAmount()
+    public function getServerAmount()
     {
         return $this->amount;
+    }
+
+    public function getLocalAmount(){
+
+        return $this->currencyCode === 'JPY' ?
+            $this->amount : $this->amount /100;
     }
     
     /**
@@ -295,7 +277,7 @@ class OmniKassaOrder
         if (!is_int($days) || $days <= 0 || $days > 99) {
             throw new \InvalidArgumentException('The capture day should be an integer value between 1 and 100');
         }
-        $this->captureDay = $days;
+        $this->captureDay = (int)$days;
         return $this;
     }
     
@@ -331,6 +313,23 @@ class OmniKassaOrder
     {
         return $this->captureMode;
     }
+
+    public function getData()
+    {
+        $data = array(
+            'amount' => $this->getServerAmount(),
+            'currencyCode' => $this->getCurrencyId(), //numeric id
+            'merchantId' => $this->merchantId,
+            'transactionReference' => $this->getTransactionReference(),
+            'orderId' => $this->getOrderId(),
+        );
+        if($this->captureDay !== null)
+        {
+            $data['captureDay'] = $this->getCaptureDay();
+            $data['captureMode'] = $this->getCaptureMode();
+        }
+        return $data;
+    }
     
     /**
      * Enable test mode
@@ -339,9 +338,10 @@ class OmniKassaOrder
      */
     public function enableTestMode()
     {
+        if($this->testMode === true){
+            return $this;
+        }
         $this->setMerchantId('002020000000001');
-        $this->setSecretKey('002020000000001_KEY1');
-        $this->setKeyVersion('1');
         $this->testMode = true;
         return $this;
     }

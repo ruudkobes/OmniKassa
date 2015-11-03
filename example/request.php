@@ -10,26 +10,34 @@ function getPath()
     return 'http://'. $_SERVER['HTTP_HOST'] . implode('/', $directories);
 }
 
-
-$request = new OmniKassaRequest();
-$request
-    ->setCurrency('EUR')
-    ->setAmount('50.00')
-    ->addPaymentMeanBrand('IDEAL')
+$order = new \stefantalen\OmniKassa\OmniKassaOrder();
+$order
+    ->setCurrencyCode('EUR')
+    ->setLocalAmount('2,0')
     ->setMerchantId('000000000000000')
+    ->setTransactionReference(date('Ymdhis').'1')
+    ->setOrderId(date('Ymdhis'));
+
+$request = new OmniKassaRequest($order);
+$request
+    ->addPaymentMeanBrand('IDEAL')
+    ->addPaymentMeanBrand('INCASSO')
     ->setNormalReturnUrl(getPath() .'/return.php')
     ->setAutomaticResponseUrl(getPath() .'/response.php')
-    ->setTransactionReference(date('Ymdhis').'1')
-    ->setOrderId(date('Ymdhis'))
     ->setKeyVersion('1')
-    ->setSecretKey('000000000000000_KEY1')
+    ->setSecretKey('002020000000001_KEY1')
     ->enableTestMode()
 ;
 
 ?>
-<form method="post" action="<?= $request->getActionUrl() ?>">
-    <input type="hidden" name="Data" value="<?= $request->getData() ?>">
-    <input type="hidden" name="InterfaceVersion" value="<?= $request->getInterfaceVersion() ?>">
-    <input type="hidden" name="Seal" value="<?= $request->getSeal() ?>">
+<html>
+<form method="post" action="<?php echo $request->getActionUrl() ?>">
+    <input type="hidden" name="Data" value="<?php echo $request->getData() ?>">
+    <input type="hidden" name="InterfaceVersion" value="<?php echo $request->getInterfaceVersion() ?>">
+    <input type="hidden" name="Seal" value="<?php echo $request->getSeal() ?>">
     <input type="submit" value="Naar betaling" />
 </form>
+
+
+
+</html>
